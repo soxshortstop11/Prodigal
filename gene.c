@@ -44,23 +44,23 @@ int add_genes(struct _gene *genes, struct _node *nodes, int initial_node)
       continue;
     }
     /* Valid start/stop: add it to the list */
-    if (nodes[path].strand == 1 && is_start_node(&nodes[path]) == 1)
+    if (nodes[path].strand == 1 && nodes[path].type == START)
     {
       genes[counter].begin = nodes[path].index+1;
       genes[counter].start_index = path;
     }
-    else if (nodes[path].strand == -1 && is_stop_node(&nodes[path]) == 1)
+    else if (nodes[path].strand == -1 && nodes[path].type == STOP)
     {
       genes[counter].begin = nodes[path].index-1;
       genes[counter].stop_index = path;
     }
-    else if (nodes[path].strand == 1 && is_stop_node(&nodes[path]) == 1)
+    else if (nodes[path].strand == 1 && nodes[path].type == STOP)
     {
       genes[counter].end = nodes[path].index+3;
       genes[counter].stop_index = path;
       counter++;
     }
-    else if (nodes[path].strand == -1 && is_start_node(&nodes[path]) == 1)
+    else if (nodes[path].strand == -1 && nodes[path].type == START)
     {
       genes[counter].end = nodes[path].index+1;
       genes[counter].start_index = path;
@@ -90,8 +90,8 @@ int add_genes(struct _gene *genes, struct _node *nodes, int initial_node)
 
   This routine was tested on numerous genomes and found to increase overall
   performance.  Having said that, this function is kind of clunky and we
-  should really be able to fix the dynamic programming so as not to be
-  necessary.
+  should really be able to fix the dynamic programming someday so that we
+  don't have to do this postprocessing step.
 ******************************************************************************/
 void adjust_starts(struct _gene *genes, int num_genes, struct _node *nodes,
                    int num_nodes, double start_weight)
@@ -125,6 +125,8 @@ void adjust_starts(struct _gene *genes, int num_genes, struct _node *nodes,
                                     index, start_weight, max_index, max_score,
                                     max_ig_mod);
 
+    /* Dueling starts: See if one start is the clear victor. */
+
     /* Now we look at the 2nd and 3rd best starts to see if we can find a */
     /* reason to make them our preferred start. */
     /* Change the start if it's a TTG with better coding/RBS/upstream score */
@@ -139,7 +141,8 @@ void adjust_starts(struct _gene *genes, int num_genes, struct _node *nodes,
 
       /* Start of less common type but with better coding, rbs, and */
       /* upstream.  Must be 18 or more bases away from original.    */
-      if (nodes[tmp_index].tscore < nodes[index].tscore && max_score[j] -
+      if (nodes[tmp_index].subtype != nodes[index].subtype &&
+          nodes[tmp_index].tscore < nodes[index].tscore && max_score[j] -
           nodes[tmp_index].tscore >= score-nodes[index].tscore +
           start_weight && nodes[tmp_index].rscore > nodes[index].rscore &&
           nodes[tmp_index].uscore > nodes[index].uscore &&
@@ -160,13 +163,13 @@ void adjust_starts(struct _gene *genes, int num_genes, struct _node *nodes,
         {
           max_score[j] += nodes[index].cscore - nodes[tmp_index].cscore;
         }
+        if (nodes[index].dscore > nodes[tmp_index].dscore)
+        {
+          max_score[j] += nodes[index].dscore - nodes[tmp_index].dscore;
+        }
         if (nodes[index].uscore > nodes[tmp_index].uscore)
         {
           max_score[j] += nodes[index].uscore - nodes[tmp_index].uscore;
-        }
-        if (ig_mod > max_ig_mod[j])
-        {
-          max_score[j] += ig_mod - max_ig_mod[j];
         }
       }
       else
@@ -195,13 +198,17 @@ void adjust_starts(struct _gene *genes, int num_genes, struct _node *nodes,
     }
     if (tmp_index != -1 && nodes[max_index[tmp_index]].strand == 1)
     {
+      nodes[genes[i].start_index].status = 0;
       genes[i].start_index = max_index[tmp_index];
       genes[i].begin = nodes[max_index[tmp_index]].index + 1;
+      nodes[max_index[tmp_index]].status = 1;
     }
     else if (tmp_index != -1 && nodes[max_index[tmp_index]].strand == -1)
     {
+      nodes[genes[i].start_index].status = 0;
       genes[i].start_index = max_index[tmp_index];
       genes[i].end = nodes[max_index[tmp_index]].index + 1;
+      nodes[max_index[tmp_index]].status = 1;
     }
   }
 }
@@ -312,7 +319,7 @@ void get_best_two_alternative_starts(struct _gene *genes, int num_genes,
     {
       continue;
     }
-    if (is_stop_node(&nodes[i]) == 1 ||
+    if (nodes[i].type == STOP ||
         nodes[i].stop_val != nodes[node_ndx].stop_val)
     {
       continue;
@@ -363,13 +370,15 @@ void record_gene_data(struct _gene *genes, struct _gene_data *gene_data,
   int partial_left = 0;
   int partial_right = 0;
   int start_type = 0;
+  int stop_type = 0;
   double rbs1 = 0.0;
   double rbs2 = 0.0;
   double confidence = 0.0;
   char sd_string[28][100] = {{0}};
   char sd_spacer[28][20] = {{0}};
   char motif[10] = "";
-  char type_string[5][20] = { "ATG", "GTG", "TTG" , "Nonstandard", "Edge" };
+  char start_string[5][20] = { "ATG", "GTG", "TTG" , "Nonstandard", "Edge" };
+  char stop_string[5][20] = { "TAA", "TAG", "TGA" , "Nonstandard", "Edge" };
 
   /* Initialize RBS string information for default SD */
   strcpy(sd_string[0], "None");
@@ -454,18 +463,13 @@ void record_gene_data(struct _gene *genes, struct _gene_data *gene_data,
     {
       partial_right = 0;
     }
-    if (nodes[beg_node].edge == 1)
-    {
-      start_type = 4;
-    }
-    else
-    {
-      start_type = nodes[beg_node].type;
-    }
+    start_type = nodes[beg_node].subtype;
+    stop_type = nodes[end_node].subtype;
 
-    sprintf(gene_data[i].gene_data, "ID=%d_%d;partial=%d%d;start_type=%s;",
+    sprintf(gene_data[i].gene_data,
+            "ID=%d_%d;partial=%d%d;start_type=%s;stop_type=%s;",
             seq_counter, i + 1, partial_left, partial_right,
-            type_string[start_type]);
+            start_string[start_type], stop_string[stop_type]);
 
     /* Record rbs data */
     rbs1 = train_data->rbs_wt[nodes[beg_node].rbs[0]]*train_data->start_weight;
@@ -708,8 +712,7 @@ void write_translations(FILE *fh, struct _gene *genes,
                         struct _gene_data *gene_data, int num_genes,
                         struct _node *nodes, unsigned char *seq,
                         unsigned char *rseq, unsigned char *useq,
-                        int seq_length, int trans_table, int seq_counter,
-                        char *short_hdr)
+                        int seq_length, int trans_table, char *short_hdr)
 {
   int i = 0;
   int j = 0;
@@ -783,7 +786,7 @@ void write_nucleotide_seqs(FILE *fh, struct _gene *genes,
                            struct _gene_data *gene_data, int num_genes,
                            struct _node *nodes, unsigned char *seq,
                            unsigned char *rseq, unsigned char *useq,
-                           int seq_length, int seq_counter, char *short_hdr)
+                           int seq_length, char *short_hdr)
 {
   int i = 0;
   int j = 0;
@@ -888,7 +891,7 @@ void write_start_file(FILE *fh, struct _node *nodes, int num_nodes,
   char sd_string[28][100] = {{0}};
   char sd_spacer[28][20] = {{0}};
   char motif[10] = "";
-  char type_string[5][20] = { "ATG", "GTG", "TTG" , "Nonstandard", "Edge" };
+  char start_string[5][20] = { "ATG", "GTG", "TTG" , "Nonstandard", "Edge" };
   char seq_data[MAX_LINE*2] = "";
   char run_data[MAX_LINE] = "";
 
@@ -981,18 +984,11 @@ void write_start_file(FILE *fh, struct _node *nodes, int num_nodes,
   fprintf(fh, "Spacer\tRBSScr\tUpsScr\tTypeScr\tGCCont\n");
   for (i = 0; i < num_nodes; i++)
   {
-    if (is_stop_node(&nodes[i]) == 1)
+    if (nodes[i].type == STOP)
     {
       continue;
     }
-    if (nodes[i].edge == 1)
-    {
-      start_type = 4;
-    }
-    else
-    {
-      start_type = nodes[i].type;
-    }
+    start_type = nodes[i].subtype;
     if (nodes[i].stop_val != prev_stop || nodes[i].strand != prev_strand)
     {
       prev_stop = nodes[i].stop_val;
@@ -1003,13 +999,13 @@ void write_start_file(FILE *fh, struct _node *nodes, int num_nodes,
     {
       fprintf(fh, "%d\t%d\t+\t%.2f\t%.2f\t%.2f\t%s\t", nodes[i].index+1,
               nodes[i].stop_val+3, nodes[i].cscore+nodes[i].sscore,
-              nodes[i].cscore, nodes[i].sscore, type_string[start_type]);
+              nodes[i].cscore, nodes[i].sscore, start_string[start_type]);
     }
     if (nodes[i].strand == -1)
     {
       fprintf(fh, "%d\t%d\t-\t%.2f\t%.2f\t%.2f\t%s\t", nodes[i].stop_val-1,
               nodes[i].index+1, nodes[i].cscore+nodes[i].sscore,
-              nodes[i].cscore, nodes[i].sscore, type_string[start_type]);
+              nodes[i].cscore, nodes[i].sscore, start_string[start_type]);
     }
     rbs1 = train_data->rbs_wt[nodes[i].rbs[0]]*train_data->start_weight;
     rbs2 = train_data->rbs_wt[nodes[i].rbs[1]]*train_data->start_weight;
@@ -1080,4 +1076,28 @@ double calculate_confidence(double score, double start_weight)
     conf = 50.00;
   }
   return conf;
+}
+
+/******************************************************************************
+  Make node status flag match what we have in the gene list.  Necessary
+  mainly for anonymous runs where we don't have access to the dynamic
+  programming pointers.
+******************************************************************************/
+void match_nodes_to_genes(struct _gene *genes, int num_genes,
+                          struct _node *nodes, int num_nodes)
+{
+  int i = 0;
+
+  /* First eliminate all nodes */
+  for (i = 0; i < num_nodes; i++)
+  {
+    nodes[i].status = 0;
+  }
+
+  /* Second, mark all the nodes in the gene list as status 1 */
+  for (i = 0; i < num_genes; i++)
+  {
+    nodes[genes[i].start_index].status = 1;
+    nodes[genes[i].stop_index].status = 1;
+  }
 }

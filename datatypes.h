@@ -27,32 +27,38 @@ struct _motif
   int index;            /* Index of the best motif for this node */
   int len;              /* Length of the motif */
   int spacer;           /* Spacer between coding start and the motif */
-  int spaceindex;       /* Index for this spacer length */
+  int spacer_index;     /* Index for this spacer length */
   double score;         /* Score for the motif */
 };
 
 /* Dynamic programming node, where each node is either a start or a stop */
 struct _node
 {
-  int type;            /* See node.h for list of start/stop types */
-                       /* 0-3 = Start Types, 10-13 = Stop Types */
+  int type;            /* 0 = Start node, 1 = Stop node */
+  int subtype;         /* For start node, 0=ATG,1=GTG,2=TTG,3=Nonst.,4=Edge */
+                       /* For stop node, 0=TAA,1=TAG,2=TGA,3=Edge */
   int edge;            /* Runs off the edge: 0 = normal, 1 = edge node */
   int index;           /* position in the sequence of the node */
   int strand;          /* 1 = forward, -1 = reverse */
-  int stop_val;        /* For a stop, record previous stop; for start, record
+  int stop_val;        /* For a stop, record previous stop; for a start, record
                           its stop */
-  int star_ptr[3];     /* Array of starts w/in MAX_SAM_OVLP bases of stop in 3
+  int stop_type;       /* For starts: record subtype of matching stop node */
+  int dimer;           /* -1 for edge, 0-15 for dimer in front of start */
+  int start_ptr[3];    /* Array of starts w/in MAX_SAM_OVLP bases of stop in 3
                           frames */
-  int gc_bias;         /* Frame of highest GC content within this node */
-  double gc_score[3];  /* % GC content in different codon positions */
-  double cscore;       /* Coding score for this node (based on 6-mer usage) */
+  int ups[30];         /* Upstream base composition */
+  double cscore;       /* Coding score for this node (based on dicodons) */
+  double lscore;       /* Length factor to the score */
   double gc_cont;      /* GC Content for the node */
+  int gc_frame[3];     /* Counter for best GC frames throughout the node */
   int rbs[2];          /* SD RBS score for this node (based on binding energy)
                           rbs[0] = best motif with exact match, rbs[1] = with
                           mismatches */
   struct _motif mot;   /* Upstream motif information for this node */
   double uscore;       /* Score for the upstream -1/-2, -15to-45 region */
+  double dscore;       /* Score for the -1/-2 dimer preceding start */
   double tscore;       /* Score for the ATG/GTG/TTG value */
+  double xscore;       /* Score for the stop codon TAA/TGA/TAG value */
   double rscore;       /* Score for the RBS motif */
   double sscore;       /* Score for the strength of the start codon */
   int trace_back;      /* Traceback to connecting node */
@@ -68,12 +74,15 @@ struct _training
   double gc;                   /* GC Content */
   int trans_table;             /* 11 = Standard Microbial, NCBI Trans Table to
                                   use */
-  double start_weight;         /* Start weight */
-  double bias[3];              /* GC frame bias for each of the 3 positions */
-  double type_wt[3];           /* Weights for ATG vs GTG vs TTG */
   int uses_sd;                 /* 0 = doesn't use SD motif, 1 = it does */
+  double start_weight;         /* Start weight */
+  double prob_start;           /* Base probability a codon is a start */
+  double prob_stop;            /* Base probability a codon is a stop */
+  double type_wt[4];           /* Weights for ATG vs GTG vs TTG */
+  double stop_wt[4];           /* Weights for TAA vs TGA vs TAG */
   double rbs_wt[28];           /* Set of weights for RBS scores */
-  double ups_comp[32][4];      /* Base composition weights for non-RBS-distance
+  double dimer_wt[16];         /* Weights for the dimer preceding the start */
+  double ups_wt[30][4];        /* Base composition weights for non-RBS-distance
                                   motifs.  0-1 are the -1/-2 position, 2-31 are
                                   the -15 to -44 positions.  Second array is
                                   the base A,C,T,G,etc. */

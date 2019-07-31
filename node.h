@@ -41,48 +41,37 @@
 #define MODE_TRN 1
 #define MODE_ANON 2
 
-/* Node Types: We use 0 to 9 as starts and 10 to 19 for stops */
-#define ATG 0
-#define GTG 1
-#define TTG 2
-#define O_START 3 /* Nonstandard start */
-#define TAA 10
-#define TAG 11
-#define TGA 12
-#define O_STOP 13 /* Nonstandard stop */
-
 int add_nodes(unsigned char *, unsigned char *, unsigned char *, int,
               struct _node *, int, int, int);
 void zero_nodes(struct _node *, int);
 void check_node_allocation(struct _node **, int);
 void reset_node_scores(struct _node *, int);
-int compare_nodes(const void *, const void *);
-int stopcmp_nodes(const void *, const void *);
 
 void record_overlapping_starts(struct _node *, int, double, int);
-void frame_score(int *, struct _node *, int);
 
 void score_nodes(unsigned char *, unsigned char *, int, struct _node *, int,
                  struct _training *, int, int);
-void raw_coding_score(unsigned char *, unsigned char *, int, struct _node *,
-                      int, int, double, double *);
-void calc_orf_gc(unsigned char *, unsigned char *, int, struct _node *, int);
-void rbs_score(unsigned char *, unsigned char *, int, struct _node *, int,
-               double *);
+void calc_coding_score(unsigned char *, unsigned char *, int, struct _node *,
+                       int, struct _training *);
+void calc_orf_gc(unsigned char *, struct _node *, int);
 
-void find_best_upstream_motif(struct _training *, unsigned char *, unsigned
-                              char *, int, struct _node *, int);
-void score_upstream_composition(unsigned char *, int, struct _node *,
-                                struct _training *);
+void rbs_assign(unsigned char *, unsigned char *, int, struct _node *, int,
+                struct _training *);
+void find_best_sd_rbs(unsigned char *, unsigned char *, int, struct _node *,
+                      int, double *);
+void find_best_nonsd_motif(struct _training *, unsigned char *, unsigned
+                           char *, int, struct _node *, int);
+
+void codon_type_score(struct _node *, struct _training *);
+void rbs_score(struct _node *, int, struct _training *);
+void dimer_score(struct _node *, int, struct _training *);
+void upstream_score(struct _node *, int, int, int, int, struct _training *);
 
 double intergenic_mod(struct _node *, struct _node *, double);
 
-int assign_start_value(unsigned char *seq, int);
-int assign_stop_value(unsigned char *seq, int);
-int is_start_node(struct _node *);
-int is_stop_node(struct _node *);
+int get_rbs_value(struct _node *, double *);
 
-double dmax(double, double);
-double dmin(double, double);
+int compare_nodes(const void *, const void *);
+int stopcmp_nodes(const void *, const void *);
 
 #endif
